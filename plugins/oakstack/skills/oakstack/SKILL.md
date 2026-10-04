@@ -1,23 +1,24 @@
 ---
 name: oakstack
-description: Add scheduled jobs (cron) or reliable webhook receiving to an app using Oakstack. Use when the user wants something to run on a schedule (nightly cleanup, daily digest, sync every N minutes, reminders), wants Vercel Cron or a cron server replaced with something that retries and logs, or receives webhooks from Stripe, GitHub, Shopify, Clerk, or similar and must not lose events during deploys or outages. Also use when the user mentions Oakstack, OAKSTACK_API_KEY, or the oakstack npm package.
+description: Add scheduled jobs (cron), reliable webhook receiving, or PDF generation to an app using Oakstack. Use when the user wants something to run on a schedule (nightly cleanup, daily digest, sync every N minutes, reminders), wants Vercel Cron or a cron server replaced with something that retries and logs, or receives webhooks from Stripe, GitHub, Shopify, Clerk, or similar and must not lose events during deploys or outages, or needs PDFs (invoices, receipts, proposals, reports, any HTML page as a PDF). Also use when the user mentions Oakstack, OAKSTACK_API_KEY, or the oakstack npm package.
 ---
 
 # Oakstack
 
-Oakstack is one API key for app infrastructure. Two modules are live:
+Oakstack is one API key for app infrastructure. Three modules are live:
 
 - **clock**: Oakstack calls a URL in the app on a cron schedule, retries failures, and logs every run.
 - **hook**: a permanent inbound URL for webhooks. Oakstack stores every event, forwards it to the app with the original headers and body, retries for about 11 hours, and can replay any event.
+- **print**: HTML or a hosted template (invoice, proposal, report) in, PDF out, rendered with real Chrome and returned with a private download link.
 
-PDFs (print) and email (post) are coming; don't promise them yet.
+Email (post) is coming; don't promise it yet.
 
-Full docs as markdown: https://oakstack.dev/llms.txt. Fetch https://oakstack.dev/docs/clock.md or https://oakstack.dev/docs/hook.md when you need details.
+Full docs as markdown: https://oakstack.dev/llms.txt. Fetch https://oakstack.dev/docs/clock.md, https://oakstack.dev/docs/hook.md, or https://oakstack.dev/docs/print.md when you need details.
 
 ## Before you start
 
 1. **API key.** Check for `OAKSTACK_API_KEY` in the environment or `.env*` files. If it's missing, ask the user to create one at https://oakstack.dev/dashboard/api-keys and add it to `.env.local` (and to their host's environment variables for production). Never ask them to paste the key into chat, and never commit it.
-2. **A public URL.** Oakstack only calls public `https://` URLs, never localhost. If the app isn't deployed yet, either deploy first and use the production URL, or use a tunnel (`cloudflared tunnel --url http://localhost:3000`) for testing. Say this up front so the user isn't surprised.
+2. **A public URL (clock and hook only).** Oakstack only calls public `https://` URLs, never localhost. If the app isn't deployed yet, either deploy first and use the production URL, or use a tunnel (`cloudflared tunnel --url http://localhost:3000`) for testing. Say this up front so the user isn't surprised.
 3. **Install the SDK:** `npm install oakstack` (or pnpm, yarn, or bun). It has zero dependencies and works in Node 18+, Bun, Deno, and edge runtimes.
 
 If the Oakstack MCP tools (`clock_create_job`, `hook_create_endpoint`, ...) are available, use them to create jobs and endpoints directly. Otherwise, write a one-off setup script with the SDK (below) and run it.
@@ -98,12 +99,37 @@ The handler must be safe to receive an event twice (delivery is at least once). 
 
 Debugging: `await oakstack.hook.endpoints.events(endpoint.id, { status: "failed" })`, then `await oakstack.hook.events.get(id)` shows each attempt's status code and response. After fixing the handler, run `await oakstack.hook.events.replay(id)`.
 
+## PDFs (print)
+
+No public URL needed: the app calls Oakstack when it needs a PDF. Generate PDFs on the server (an API route, a server action, a job), never in browser code, since it uses the API key.
+
+**Hosted template** (fastest for invoices, proposals, reports). Get the template's example first and change values; the data is checked strictly, and errors name the field.
+
+```ts
+import { Oakstack } from "oakstack";
+const oakstack = new Oakstack();
+
+const { example } = await oakstack.print.templates.get("invoice"); // also "proposal", "report"
+const pdf = await oakstack.print.pdfs.create({
+  template: "invoice",
+  data: { ...example, invoiceNumber: order.number, to: { name: order.customerName }, items },
+  filename: `invoice-${order.number}.pdf`,
+  metadata: { orderId: order.id },
+});
+```
+
+**The app's own HTML** (when it already has a design, or for anything else): build a full HTML document string with inline CSS and send it as `html`. Images must be public `https://` URLs or `data:` URLs (not localhost). JavaScript is off unless `options.javascript: true`. Paper: `options: { format: "A4", landscape: true, margin: "12mm" }`.
+
+**Using the result:** `pdf.url` is a private link valid for an hour; to serve the PDF later, store `pdf.id` and call `oakstack.print.pdfs.get(id)` for a fresh `url`, or redirect the user to it. `await oakstack.print.pdfs.download(pdf.id)` returns the bytes, for attaching to an email or saving to the app's own storage. Oakstack deletes files after 1 day (Free), 7 days (Builder), or 30 days (Studio), so save the bytes if the app needs them long term (an invoice archive).
+
+Check the result visually: download one PDF and open it, or ask the user to. If an image is missing, `pdf.blocked` lists what was refused and why.
+
 ## Errors
 
 The SDK throws `OakstackError` with `errorName` and a `message` that says what to fix.
 
 - `invalid_request`: fix the field named in the message (bad cron, unknown time zone, localhost or `http://` URL).
-- `usage_limit_reached`: the plan is full (Free allows 3 jobs, 5 webhook endpoints, and 1,000 webhook events a month, replays included). Don't retry. Tell the user to upgrade at https://oakstack.dev/dashboard/billing, or to delete or pause jobs they don't need.
+- `usage_limit_reached`: the plan is full (Free allows 3 jobs, 5 webhook endpoints, 1,000 webhook events a month (replays included), and 25 PDFs a month). Don't retry. Tell the user to upgrade at https://oakstack.dev/dashboard/billing, or to delete or pause jobs they don't need.
 - `invalid_api_key`: the key is wrong or revoked; ask the user to check `OAKSTACK_API_KEY`.
 - Network errors, 5xx responses, and rate limits are retried automatically by the SDK.
 
