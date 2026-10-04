@@ -67,7 +67,7 @@ console.log(job.id, job.signingSecret);
 
 **Step 3:** tell the user to add `OAKSTACK_JOB_SECRET=<job.signingSecret>` to the app's environment (local and production). Every job and endpoint has its own secret: with several, give each its own variable named after its purpose (e.g. `OAKSTACK_CLEANUP_SECRET`, `OAKSTACK_WEBHOOK_SECRET`). Then test it: `await oakstack.clock.jobs.run(job.id)`, and check `await oakstack.clock.jobs.runs(job.id)` for `status: "succeeded"`.
 
-Cron cheat sheet: `*/5 * * * *` every 5 minutes, `0 * * * *` hourly, `0 9 * * *` daily at 9:00, `0 9 * * 1-5` weekdays at 9:00, `0 0 1 * *` monthly. Five fields only; there are no seconds.
+Cron cheat sheet: `*/5 * * * *` every 5 minutes, `0 * * * *` hourly, `0 9 * * *` daily at 9:00, `0 9 * * 1-5` weekdays at 9:00, `0 0 1 * *` monthly. Five fields only; there are no seconds. On the Free plan, schedules can run at most every 5 minutes.
 
 If the app already uses Vercel Cron (`vercel.json` `crons`) or a cron library for this task, remove that schedule once the Oakstack job works, so the task doesn't run twice.
 
