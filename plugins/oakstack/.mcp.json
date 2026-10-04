@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "oakstack": {
+      "type": "http",
+      "url": "https://oakstack.dev/mcp",
+      "headers": {
+        "Authorization": "Bearer ${OAKSTACK_API_KEY}"
+      }
+    }
+  }
+}

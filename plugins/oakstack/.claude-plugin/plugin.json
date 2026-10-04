@@ -2,15 +2,11 @@
   "name": "oakstack",
   "version": "0.1.0",
   "description": "Scheduled jobs and a webhook relay for your app, set up by Claude. Includes the Oakstack skill and the hosted Oakstack MCP server (needs OAKSTACK_API_KEY).",
-  "author": { "name": "Oakstack", "url": "https://oakstack.dev" },
+  "author": {
+    "name": "Oakstack",
+    "url": "https://oakstack.dev"
+  },
   "homepage": "https://oakstack.dev/docs",
   "license": "MIT",
-  "keywords": ["cron", "scheduler", "webhooks", "stripe", "mcp"],
-  "mcpServers": {
-    "oakstack": {
-      "type": "http",
-      "url": "https://oakstack.dev/mcp",
-      "headers": { "Authorization": "Bearer ${OAKSTACK_API_KEY}" }
-    }
-  }
+  "keywords": ["cron", "scheduler", "webhooks", "stripe", "mcp"]
 }
