@@ -1,0 +1,13 @@
+{
+  "name": "oakstack",
+  "owner": { "name": "Oakstack", "url": "https://oakstack.dev" },
+  "description": "Oakstack for Claude Code: scheduled jobs and a webhook relay your agent sets up for you.",
+  "plugins": [
+    {
+      "name": "oakstack",
+      "source": "./plugins/oakstack",
+      "description": "The Oakstack skill plus the hosted Oakstack MCP server.",
+      "version": "0.1.0"
+    }
+  ]
+}
