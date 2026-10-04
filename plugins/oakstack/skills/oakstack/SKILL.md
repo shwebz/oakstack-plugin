@@ -1,19 +1,19 @@
 ---
 name: oakstack
-description: Add scheduled jobs (cron), reliable webhook receiving, or PDF generation to an app using Oakstack. Use when the user wants something to run on a schedule (nightly cleanup, daily digest, sync every N minutes, reminders), wants Vercel Cron or a cron server replaced with something that retries and logs, or receives webhooks from Stripe, GitHub, Shopify, Clerk, or similar and must not lose events during deploys or outages, or needs PDFs (invoices, receipts, proposals, reports, any HTML page as a PDF). Also use when the user mentions Oakstack, OAKSTACK_API_KEY, or the oakstack npm package.
+description: Add scheduled jobs (cron), reliable webhook receiving, PDF generation, or transactional email to an app using Oakstack. Use when the user wants something to run on a schedule (nightly cleanup, daily digest, sync every N minutes, reminders), wants Vercel Cron or a cron server replaced with something that retries and logs, or receives webhooks from Stripe, GitHub, Shopify, Clerk, or similar and must not lose events during deploys or outages, needs PDFs (invoices, receipts, proposals, reports, any HTML page as a PDF), or sends email (receipts, notifications, password resets, inbound email to the app). Also use when the user mentions Oakstack, OAKSTACK_API_KEY, or the oakstack npm package.
 ---
 
 # Oakstack
 
-Oakstack is one API key for app infrastructure. Three modules are live:
+Oakstack is one API key for app infrastructure. Four modules:
 
 - **clock**: Oakstack calls a URL in the app on a cron schedule, retries failures, and logs every run.
 - **hook**: a permanent inbound URL for webhooks. Oakstack stores every event, forwards it to the app with the original headers and body, retries for about 11 hours, and can replay any event.
 - **print**: HTML or a hosted template (invoice, proposal, report) in, PDF out, rendered with real Chrome and returned with a private download link.
 
-Email (post) is coming; don't promise it yet.
+- **post**: transactional email from the user's own domain (with PDFs attached in the same call), automatic bounce and complaint suppression, and inbound email delivered to a hook endpoint. Live sending may not be enabled yet: check first (below).
 
-Full docs as markdown: https://oakstack.dev/llms.txt. Fetch https://oakstack.dev/docs/clock.md, https://oakstack.dev/docs/hook.md, or https://oakstack.dev/docs/print.md when you need details.
+Full docs as markdown: https://oakstack.dev/llms.txt. Fetch https://oakstack.dev/docs/clock.md, https://oakstack.dev/docs/hook.md, or https://oakstack.dev/docs/print.md, or https://oakstack.dev/docs/post.md when you need details.
 
 ## Before you start
 
@@ -124,12 +124,38 @@ const pdf = await oakstack.print.pdfs.create({
 
 Check the result visually: download one PDF and open it, or ask the user to. If an image is missing, `pdf.blocked` lists what was refused and why.
 
+## Email (post)
+
+1. **Check what's possible:** `await oakstack.post.status()` (or the `post_status` MCP tool). If `liveSendingEnabled` is false, live email isn't switched on for Oakstack yet: build and test with a test key (`ok_test_`), and tell the user live sending is opening soon. If `membersOnly` is true (Free plan), live email can only go to the workspace's own members until they upgrade.
+2. **Test key while building.** An `ok_test_` key checks and logs every email but never delivers it. Simulate outcomes by sending to `bounced@test.oakstack.dev` or `complained@test.oakstack.dev`.
+3. **Domain:** `await oakstack.post.domains.create({ domain: "theirdomain.com" })` returns DNS records. Show the user the 3 required CNAMEs (and the recommended MX/TXT/DMARC) to add at their DNS provider; it verifies by itself, usually within an hour.
+4. **Send from server code only** (it uses the API key):
+
+```ts
+await oakstack.post.emails.send(
+  {
+    from: "Acme <hello@theirdomain.com>",
+    to: user.email,
+    subject: "Your receipt",
+    html: receiptHtml,
+    text: receiptText,
+    attachments: [{ filename: `receipt-${order.id}.pdf`, print: { template: "invoice", data } }],
+    metadata: { orderId: order.id },
+  },
+  { idempotencyKey: `receipt-${order.id}` }, // a retry never sends twice
+);
+```
+
+Hard bounces and spam complaints are suppressed automatically; don't build your own list for that. `oakstack.post.emails.get(id).events` shows delivered, bounced (with the reason), and complained. For inbound email (support inbox, replies), create a hook endpoint pointing at an app route, then `oakstack.post.inbound.create({ name, hookEndpointId })`; the route receives each email as JSON (from, subject, text, html, attachments).
+
+Email errors: `not_allowed` (unverified From domain, or a non-member on Free: the message says which), `sending_paused` (too many bounces or complaints; the user must contact support@oakstack.dev), `email_not_enabled` (use a test key for now).
+
 ## Errors
 
 The SDK throws `OakstackError` with `errorName` and a `message` that says what to fix.
 
 - `invalid_request`: fix the field named in the message (bad cron, unknown time zone, localhost or `http://` URL).
-- `usage_limit_reached`: the plan is full (Free allows 3 jobs, 5 webhook endpoints, 1,000 webhook events a month (replays included), and 25 PDFs a month). Don't retry. Tell the user to upgrade at https://oakstack.dev/dashboard/billing, or to delete or pause jobs they don't need.
+- `usage_limit_reached`: the plan is full (Free allows 3 jobs, 5 webhook endpoints, 1,000 webhook events a month (replays included), 25 PDFs a month, and 100 email recipients a month). New senders also have a daily email cap (200 recipients a day in their first week), reported as `usage_limit_reached` with the numbers. Don't retry. Tell the user to upgrade at https://oakstack.dev/dashboard/billing, or to delete or pause jobs they don't need.
 - `invalid_api_key`: the key is wrong or revoked; ask the user to check `OAKSTACK_API_KEY`.
 - Network errors, 5xx responses, and rate limits are retried automatically by the SDK.
 

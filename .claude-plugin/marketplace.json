@@ -4,13 +4,13 @@
     "name": "Oakstack",
     "url": "https://oakstack.dev"
   },
-  "description": "Oakstack for Claude Code: scheduled jobs, a webhook relay, and PDFs your agent sets up for you.",
+  "description": "Oakstack for Claude Code: scheduled jobs, webhooks, PDFs, and email your agent sets up for you.",
   "plugins": [
     {
       "name": "oakstack",
       "source": "./plugins/oakstack",
       "description": "The Oakstack skill plus the hosted Oakstack MCP server.",
-      "version": "0.2.0"
+      "version": "0.3.0"
     }
   ]
 }
