@@ -1,6 +1,6 @@
 {
   "name": "oakstack",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Scheduled jobs and a webhook relay for your app, set up by Claude. Includes the Oakstack skill and the hosted Oakstack MCP server (needs OAKSTACK_API_KEY).",
   "author": {
     "name": "Oakstack",

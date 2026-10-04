@@ -33,7 +33,7 @@ import { verifySignature } from "oakstack";
 export async function POST(req: Request) {
   const body = await req.text();
   const ok = await verifySignature(
-    process.env.OAKSTACK_SIGNING_SECRET!,
+    process.env.OAKSTACK_JOB_SECRET!,
     req.headers.get("oakstack-signature"),
     body,
   );
@@ -47,7 +47,7 @@ export async function POST(req: Request) {
 }
 ```
 
-**Step 2: create the job** (once, from a script or with the MCP tool):
+**Step 2: create the job** (once, from a script or with the MCP tool). Make the script safe to re-run: look for an existing job with the same name first (`list()` returns an array). The idempotency key only protects retries within 24 hours. Run it with `npx tsx --env-file=.env.local scripts/setup-oakstack.ts`.
 
 ```ts
 import { Oakstack } from "oakstack";
@@ -60,12 +60,12 @@ const job = await oakstack.clock.jobs.create(
     timezone: "America/Chicago", // ask the user's time zone if it matters; default UTC
     url: "https://yourapp.com/api/cron/cleanup",
   },
-  { idempotencyKey: "nightly-cleanup-v1" }, // makes re-running the script safe
+  { idempotencyKey: "nightly-cleanup-v1" }, // makes a retried request safe (remembered 24 hours)
 );
 console.log(job.id, job.signingSecret);
 ```
 
-**Step 3:** tell the user to add `OAKSTACK_SIGNING_SECRET=<job.signingSecret>` to the app's environment (local and production). Then test it: `await oakstack.clock.jobs.run(job.id)`, and check `await oakstack.clock.jobs.runs(job.id)` for `status: "succeeded"`.
+**Step 3:** tell the user to add `OAKSTACK_JOB_SECRET=<job.signingSecret>` to the app's environment (local and production). Every job and endpoint has its own secret: with several, give each its own variable named after its purpose (e.g. `OAKSTACK_CLEANUP_SECRET`, `OAKSTACK_WEBHOOK_SECRET`). Then test it: `await oakstack.clock.jobs.run(job.id)`, and check `await oakstack.clock.jobs.runs(job.id)` for `status: "succeeded"`.
 
 Cron cheat sheet: `*/5 * * * *` every 5 minutes, `0 * * * *` hourly, `0 9 * * *` daily at 9:00, `0 9 * * 1-5` weekdays at 9:00, `0 0 1 * *` monthly. Five fields only; there are no seconds.
 
@@ -83,7 +83,16 @@ const endpoint = await oakstack.hook.endpoints.create(
 console.log(endpoint.url); // https://oakstack.dev/h/...
 ```
 
-Then tell the user to replace the webhook URL in the sender's dashboard (Stripe: Developers → Webhooks) with `endpoint.url`. The app keeps verifying the sender's signature (for example `stripe.webhooks.constructEvent`) exactly as before: Oakstack forwards the original headers and the exact body bytes. Read the raw body once with `await req.arrayBuffer()` or `await req.text()` before any JSON parsing. Optionally also verify `Oakstack-Signature` with `endpoint.signingSecret`.
+**Stripe and other senders with timestamped signatures need one change.** Oakstack forwards the sender's original signature header, and its timestamp ages through retries, pauses, and replays. Stripe's `constructEvent` rejects anything older than 5 minutes by default, which would drop exactly the delayed events Oakstack is meant to save. In the webhook route:
+
+1. read the raw body once (`await req.text()`);
+2. if an `oakstack-signature` header is present, verify it with `verifySignature(process.env.OAKSTACK_WEBHOOK_SECRET!, ...)`;
+3. then call `stripe.webhooks.constructEvent(raw, sig, secret, 60 * 60 * 24 * 30)` (a 30-day tolerance) for relayed requests, and keep the default for direct ones;
+4. skip events whose `event.id` was already processed.
+
+The full example is under "Using Oakhook with Stripe" in https://oakstack.dev/docs/hook.md.
+
+Cutover: deploy that route first, then in Stripe **edit the existing endpoint's URL** to `endpoint.url`, which keeps the same `whsec_` secret. A newly added Stripe endpoint gets a new `whsec_`: update `STRIPE_WEBHOOK_SECRET` before disabling the old endpoint.
 
 The handler must be safe to receive an event twice (delivery is at least once). Dedupe on the sender's event id or the `oakstack-event-id` header.
 
@@ -94,7 +103,7 @@ Debugging: `await oakstack.hook.endpoints.events(endpoint.id, { status: "failed"
 The SDK throws `OakstackError` with `errorName` and a `message` that says what to fix.
 
 - `invalid_request`: fix the field named in the message (bad cron, unknown time zone, localhost or `http://` URL).
-- `usage_limit_reached`: the plan is full (Free allows 3 jobs and 1,000 webhook events a month). Don't retry. Tell the user to upgrade at https://oakstack.dev/dashboard/billing, or to delete or pause jobs they don't need.
+- `usage_limit_reached`: the plan is full (Free allows 3 jobs, 5 webhook endpoints, and 1,000 webhook events a month, replays included). Don't retry. Tell the user to upgrade at https://oakstack.dev/dashboard/billing, or to delete or pause jobs they don't need.
 - `invalid_api_key`: the key is wrong or revoked; ask the user to check `OAKSTACK_API_KEY`.
 - Network errors, 5xx responses, and rate limits are retried automatically by the SDK.
 
