@@ -10,7 +10,7 @@
       "name": "oakstack",
       "source": "./plugins/oakstack",
       "description": "The Oakstack skill plus the hosted Oakstack MCP server.",
-      "version": "0.3.0"
+      "version": "0.4.0"
     }
   ]
 }

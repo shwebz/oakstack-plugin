@@ -1,16 +1,17 @@
 ---
 name: oakstack
-description: Add scheduled jobs (cron), reliable webhook receiving, PDF generation, or transactional email to an app using Oakstack. Use when the user wants something to run on a schedule (nightly cleanup, daily digest, sync every N minutes, reminders), wants Vercel Cron or a cron server replaced with something that retries and logs, or receives webhooks from Stripe, GitHub, Shopify, Clerk, or similar and must not lose events during deploys or outages, needs PDFs (invoices, receipts, proposals, reports, any HTML page as a PDF), or sends email (receipts, notifications, password resets, inbound email to the app). Also use when the user mentions Oakstack, OAKSTACK_API_KEY, or the oakstack npm package.
+description: Add scheduled jobs (cron), reliable webhook receiving, PDF generation, transactional email, or reading photos and documents into data, in an app using Oakstack. Use when the user wants something to run on a schedule (nightly cleanup, daily digest, sync every N minutes, reminders), wants Vercel Cron or a cron server replaced with something that retries and logs, or receives webhooks from Stripe, GitHub, Shopify, Clerk, or similar and must not lose events during deploys or outages, needs PDFs (invoices, receipts, proposals, reports, any HTML page as a PDF), sends email (receipts, notifications, password resets, inbound email to the app), or needs to turn photos, screenshots, PDFs, or pasted lists into structured data (product imports, receipts, business cards). Also use when the user mentions Oakstack, OAKSTACK_API_KEY, or the oakstack npm package.
 ---
 
 # Oakstack
 
-Oakstack is one API key for app infrastructure. Four modules:
+Oakstack is one API key for app infrastructure. Five modules:
 
 - **clock**: Oakstack calls a URL in the app on a cron schedule, retries failures, and logs every run.
 - **hook**: a permanent inbound URL for webhooks. Oakstack stores every event, forwards it to the app with the original headers and body, retries for about 11 hours, and can replay any event.
 - **print**: HTML or a hosted template (invoice, proposal, report) in, PDF out, rendered with real Chrome and returned with a private download link.
 
+- **lens**: photos, screenshots, PDFs, and pasted text in, structured data out (templates: product-list, receipt, contacts, or your own JSON Schema), with warnings for anything unclear.
 - **post**: transactional email from the user's own domain (with PDFs attached in the same call), automatic bounce and complaint suppression, and inbound email delivered to a hook endpoint. Live sending may not be enabled yet: check first (below).
 
 Full docs as markdown: https://oakstack.dev/llms.txt. Fetch https://oakstack.dev/docs/clock.md, https://oakstack.dev/docs/hook.md, or https://oakstack.dev/docs/print.md, or https://oakstack.dev/docs/post.md when you need details.
@@ -149,6 +150,20 @@ await oakstack.post.emails.send(
 Hard bounces and spam complaints are suppressed automatically; don't build your own list for that. `oakstack.post.emails.get(id).events` shows delivered, bounced (with the reason), and complained. For inbound email (support inbox, replies), create a hook endpoint pointing at an app route, then `oakstack.post.inbound.create({ name, hookEndpointId })`; the route receives each email as JSON (from, subject, text, html, attachments).
 
 Email errors: `not_allowed` (unverified From domain, or a non-member on Free: the message says which), `sending_paused` (too many bounces or complaints; the user must contact support@oakstack.dev), `email_not_enabled` (use a test key for now).
+
+## Reading documents (lens)
+
+For imports (a photo of products, a pre-order email, a receipt): call it server-side, show the result in an editable review table with the warnings, and save only what the user confirms. Never write extracted data straight into a store or database.
+
+```ts
+const result = await oakstack.lens.extract({
+  template: "product-list", // or "receipt", "contacts", or schema: { type: "object", ... }
+  inputs: [{ data: uploadedFileBytes, filename }, { text: pastedList }],
+});
+// result.data.items, result.warnings, item.confidence
+```
+
+Inputs: up to 10 images (JPEG/PNG/GIF/WebP, 5 MB), PDFs (10 MB, 30 pages), or text; by bytes, base64, or public URL. No HEIC. It takes 5 to 30 seconds; counted in pages (Free 20 a month).
 
 ## Errors
 
