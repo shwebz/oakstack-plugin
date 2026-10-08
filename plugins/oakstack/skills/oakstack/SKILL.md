@@ -1,11 +1,11 @@
 ---
 name: oakstack
-description: Add scheduled jobs (cron), reliable webhook receiving, PDF generation, transactional email, or reading photos and documents into data, in an app using Oakstack. Use when the user wants something to run on a schedule (nightly cleanup, daily digest, sync every N minutes, reminders), wants Vercel Cron or a cron server replaced with something that retries and logs, or receives webhooks from Stripe, GitHub, Shopify, Clerk, or similar and must not lose events during deploys or outages, needs PDFs (invoices, receipts, proposals, reports, any HTML page as a PDF), sends email (receipts, notifications, password resets, inbound email to the app), or needs to turn photos, screenshots, PDFs, or pasted lists into structured data (product imports, receipts, business cards). Also use when the user mentions Oakstack, OAKSTACK_API_KEY, or the oakstack npm package.
+description: "Add scheduled jobs (cron), reliable webhook receiving, PDF generation, transactional email, or reading photos and documents into data, in an app using Oakstack. Use when the user wants something to run on a schedule (nightly cleanup, daily digest, sync every N minutes, reminders), wants Vercel Cron or a cron server replaced with something that retries and logs, or receives webhooks from Stripe, GitHub, Shopify, Clerk, or similar and must not lose events during deploys or outages, needs PDFs (invoices, receipts, proposals, reports, any HTML page as a PDF), sends email (receipts, notifications, password resets, inbound email to the app), sends text messages (SMS: order updates, reminders, sign-in codes, replies to the app), or needs to turn photos, screenshots, PDFs, or pasted lists into structured data (product imports, receipts, business cards). Also use when the user mentions Oakstack, OAKSTACK_API_KEY, or the oakstack npm package."
 ---
 
 # Oakstack
 
-Oakstack is one API key for app infrastructure. Five modules:
+Oakstack is one API key for app infrastructure. Six modules:
 
 - **clock**: Oakstack calls a URL in the app on a cron schedule, retries failures, and logs every run.
 - **hook**: a permanent inbound URL for webhooks. Oakstack stores every event, forwards it to the app with the original headers and body, retries for about 11 hours, and can replay any event.
@@ -13,8 +13,9 @@ Oakstack is one API key for app infrastructure. Five modules:
 
 - **lens**: photos, screenshots, PDFs, and pasted text in, structured data out (templates: product-list, receipt, contacts, or your own JSON Schema), with warnings for anything unclear.
 - **post**: transactional email from the user's own domain (with PDFs attached in the same call), automatic bounce and complaint suppression, and inbound email delivered to a hook endpoint. Live sending may not be enabled yet: check first (below).
+- **ring**: text messages (SMS) to US and Canadian phones from the user's own toll-free number (carriers must verify it first: 3 to 5 business days), with STOP handled automatically and replies delivered to a hook endpoint.
 
-Full docs as markdown: https://oakstack.dev/llms.txt. Fetch https://oakstack.dev/docs/clock.md, https://oakstack.dev/docs/hook.md, or https://oakstack.dev/docs/print.md, or https://oakstack.dev/docs/post.md when you need details.
+Full docs as markdown: https://oakstack.dev/llms.txt. Fetch https://oakstack.dev/docs/clock.md, https://oakstack.dev/docs/hook.md, or https://oakstack.dev/docs/print.md, https://oakstack.dev/docs/post.md, or https://oakstack.dev/docs/ring.md when you need details.
 
 ## Before you start
 
@@ -151,6 +152,22 @@ Hard bounces and spam complaints are suppressed automatically; don't build your 
 
 Email errors: `not_allowed` (unverified From domain, or a non-member on Free: the message says which), `sending_paused` (too many bounces or complaints; the user must contact support@oakstack.dev), `email_not_enabled` (use a test key for now).
 
+## Text messages (ring)
+
+Check `oakstack.ring.status()` (or the `ring_status` MCP tool) first: its `nextStep` says what's missing. Live texts need a paid plan and the user's own toll-free number, which the user gets in the Oakstack dashboard (SMS page) with their real business details; carriers review it in 3 to 5 business days. Don't invent business details or submit them for the user. Build and test with an `ok_test_` key meanwhile: nothing is sent, and delivery is simulated.
+
+```ts
+await oakstack.ring.messages.send({
+  to: customer.phone, // "+16125550123" or "(612) 555-0123"; US and Canada only
+  body: "Acme: your order #1042 is ready for pickup. Reply STOP to opt out.",
+  metadata: { orderId: "1042" },
+});
+```
+
+Rules that matter in app code: only text people who agreed to texts (add a consent checkbox where the phone number is collected, and store when they agreed), include "Reply STOP to opt out." in the first text, keep texts short (160 plain characters is one segment; one emoji makes it 70), and don't use link shorteners like bit.ly (carriers block them). STOP replies are handled automatically: a text to someone who opted out comes back with status `opted_out` and isn't counted. For replies, create a hook endpoint pointing at an app route and set it on the number with `oakstack.ring.numbers.update(id, { hookEndpointId })`; the route receives `{ object: "ring.inbound_message", from, to, body, media, optOut }`.
+
+SMS errors: `not_allowed` (Free plan, the number isn't approved yet, or a sandbox text to an unverified phone: the message says which), `sending_paused` (too many STOP replies or filtered texts; the user must contact support@oakstack.dev), `not_enabled` (use a test key for now).
+
 ## Reading documents (lens)
 
 For imports (a photo of products, a pre-order email, a receipt): call it server-side, show the result in an editable review table with the warnings, and save only what the user confirms. Never write extracted data straight into a store or database.
@@ -170,7 +187,7 @@ Inputs: up to 10 images (JPEG/PNG/GIF/WebP, 5 MB), PDFs (10 MB, 30 pages), or te
 The SDK throws `OakstackError` with `errorName` and a `message` that says what to fix.
 
 - `invalid_request`: fix the field named in the message (bad cron, unknown time zone, localhost or `http://` URL).
-- `usage_limit_reached`: the plan is full (Free allows 3 jobs, 5 webhook endpoints, 1,000 webhook events a month (replays included), 25 PDFs a month, and 100 email recipients a month). New senders also have a daily email cap (200 recipients a day in their first week), reported as `usage_limit_reached` with the numbers. Don't retry. Tell the user to upgrade at https://oakstack.dev/dashboard/billing, or to delete or pause jobs they don't need.
+- `usage_limit_reached`: the plan is full (Free allows 3 jobs, 5 webhook endpoints, 1,000 webhook events a month (replays included), 25 PDFs a month, 100 email recipients a month, and no live texts). Builder includes 250 text segments a month, Studio 1,000. New senders also have a daily email cap (200 recipients a day in their first week), reported as `usage_limit_reached` with the numbers. Don't retry. Tell the user to upgrade at https://oakstack.dev/dashboard/billing, or to delete or pause jobs they don't need.
 - `invalid_api_key`: the key is wrong or revoked; ask the user to check `OAKSTACK_API_KEY`.
 - Network errors, 5xx responses, and rate limits are retried automatically by the SDK.
 
